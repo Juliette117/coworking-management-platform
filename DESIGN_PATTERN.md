@@ -1,8 +1,8 @@
 # Choix des Design Patterns : Builder et State
 
-J'ai choisi d'implémenter deux Design Patterns distincts qui répondent à deux problématiques métiers différentes liées à l'entité `Reservation`.
+J'ai choisi d'implémenter deux Design Patterns qui répondent à deux problématiques différentes.
 
-## Le pattern créationnel : Builder
+## Le pattern créationnel Builder
 
 ### Problématique
 La création d'une réservation (`Reservation`) nécessite plusieurs informations (l'ID de la salle, l'ID du membre, les dates de début et de fin) ainsi que la validation de certaines règles (les dates ne doivent pas être nulles, le statut initial doit être défini par défaut sur `CONFIRMED`).
@@ -16,7 +16,7 @@ J'ai implémenté une classe statique interne `Builder` dans l'entité `Reservat
 
 ---
 
-## Le pattern comportemental : State
+## Le pattern comportemental State
 
 ### Problématique
 Une réservation possède un cycle de vie précis représenté par un statut (`ReservationStatus`) : `CONFIRMED`, `CANCELLED`, ou `COMPLETED`.
