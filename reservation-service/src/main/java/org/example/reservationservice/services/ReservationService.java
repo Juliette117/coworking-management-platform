@@ -7,6 +7,8 @@ import org.example.reservationservice.controllers.restClients.MemberRestClient;
 import org.example.reservationservice.dto.RoomDTO;
 import org.example.reservationservice.controllers.restClients.RoomRestClient;
 import org.example.reservationservice.kafka.ReservationProducer;
+import org.example.reservationservice.state.ReservationState;
+import org.example.reservationservice.state.ReservationStateFactory;
 import org.example.reservationservice.repositories.ReservationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,11 +44,11 @@ public class ReservationService {
     }
 
     @Transactional
-    public Reservation createReservation(Reservation reservation) {
-        // Vérifier que la salle existe et est disponible
+    public Reservation createReservation(Reservation reservationRequest) {
+        //Vérifier la salle
         RoomDTO room;
         try {
-            room = roomRestClient.getRoomById(reservation.getRoomId());
+            room = roomRestClient.getRoomById(reservationRequest.getRoomId());
         } catch (Exception e) {
             throw new RuntimeException("Room not found or Room Service unavailable");
         }
@@ -55,10 +57,10 @@ public class ReservationService {
             throw new RuntimeException("Room is not available");
         }
 
-        // Vérifier que le membre existe et n'est pas suspendu
+        //Vérifier le membre
         MemberDTO member;
         try {
-            member = memberRestClient.getMemberById(reservation.getMemberId());
+            member = memberRestClient.getMemberById(reservationRequest.getMemberId());
         } catch (Exception e) {
             throw new RuntimeException("Member not found or Member Service unavailable");
         }
@@ -67,20 +69,23 @@ public class ReservationService {
             throw new RuntimeException("Member is suspended and cannot make a reservation");
         }
 
-        //  Créer la réservation
-        reservation.setStatus(ReservationStatus.CONFIRMED);
-        
-        // S'assurer d'avoir des dates
-        if(reservation.getStartDateTime() == null) {
-            reservation.setStartDateTime(LocalDateTime.now());
-        }
+        //Créer la réservation à l'aide du Builder
+        Reservation reservation = new Reservation.Builder()
+                .withRoom(reservationRequest.getRoomId())
+                .withMember(reservationRequest.getMemberId())
+                .withTimeFrame(
+                        reservationRequest.getStartDateTime() != null ? reservationRequest.getStartDateTime() : LocalDateTime.now(),
+                        reservationRequest.getEndDateTime()
+                )
+                .withStatus(ReservationStatus.CONFIRMED)
+                .build();
 
         Reservation savedReservation = reservationRepository.save(reservation);
 
-        // Mettre à jour la disponibilité de la salle via Feign Client
+        // Mettre à jour la disponibilité de la salle
         roomRestClient.updateRoomAvailability(reservation.getRoomId(), false);
 
-        // Kafka -> Envoyer event pour mettre à jour le nombre de réservations actives du membre
+        //Envoyer event pour mettre à jour le nombre de réservations actives du membre
         reservationProducer.sendReservationCreatedEvent(reservation.getMemberId());
 
         return savedReservation;
@@ -90,17 +95,16 @@ public class ReservationService {
     public Reservation cancelReservation(Long id) {
         Reservation reservation = getReservationById(id);
         
-        if (reservation.getStatus() == ReservationStatus.CANCELLED) {
-            throw new RuntimeException("Reservation is already cancelled");
-        }
+        // Utilisation du pattern STATE
+        ReservationState state = ReservationStateFactory.getState(reservation.getStatus());
+        state.cancel(reservation); // Lèvera une exception si l'état actuel ne permet pas l'annulation
 
-        reservation.setStatus(ReservationStatus.CANCELLED);
         Reservation savedReservation = reservationRepository.save(reservation);
 
         // Rendre la salle à nouveau disponible
         roomRestClient.updateRoomAvailability(reservation.getRoomId(), true);
 
-        // Kafka -> Envoyer event pour diminuer le nombre de réservations du membre
+        //Envoyer event pour diminuer le nombre de réservations du membre
         reservationProducer.sendReservationEndedEvent(reservation.getMemberId());
 
         return savedReservation;
@@ -110,17 +114,16 @@ public class ReservationService {
     public Reservation completeReservation(Long id) {
         Reservation reservation = getReservationById(id);
 
-        if (reservation.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new RuntimeException("Only CONFIRMED reservations can be completed");
-        }
+        // Utilisation du pattern STATE
+        ReservationState state = ReservationStateFactory.getState(reservation.getStatus());
+        state.complete(reservation); // Lèvera une exception si l'état actuel ne permet pas la complétion
 
-        reservation.setStatus(ReservationStatus.COMPLETED);
         Reservation savedReservation = reservationRepository.save(reservation);
 
         // Rendre la salle à nouveau disponible
         roomRestClient.updateRoomAvailability(reservation.getRoomId(), true);
 
-        // Kafka -> Envoyer event pour diminuer le nombre de réservations du membre
+        //Envoyer event pour diminuer le nombre de réservations du membre
         reservationProducer.sendReservationEndedEvent(reservation.getMemberId());
 
         return savedReservation;
