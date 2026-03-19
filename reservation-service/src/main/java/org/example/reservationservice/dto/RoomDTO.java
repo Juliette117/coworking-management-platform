@@ -1,4 +1,4 @@
-package org.example.reservationservice.feign;
+package org.example.reservationservice.dto;
 
 public class RoomDTO {
     private Long id;

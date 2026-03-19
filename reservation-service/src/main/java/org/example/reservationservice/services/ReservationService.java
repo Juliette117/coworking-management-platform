@@ -2,10 +2,11 @@ package org.example.reservationservice.services;
 
 import org.example.reservationservice.entitites.Reservation;
 import org.example.reservationservice.entitites.ReservationStatus;
-import org.example.reservationservice.feign.MemberDTO;
-import org.example.reservationservice.feign.MemberRestClient;
-import org.example.reservationservice.feign.RoomDTO;
-import org.example.reservationservice.feign.RoomRestClient;
+import org.example.reservationservice.dto.MemberDTO;
+import org.example.reservationservice.controllers.restClients.MemberRestClient;
+import org.example.reservationservice.dto.RoomDTO;
+import org.example.reservationservice.controllers.restClients.RoomRestClient;
+import org.example.reservationservice.kafka.ReservationProducer;
 import org.example.reservationservice.repositories.ReservationRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,13 +20,16 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final RoomRestClient roomRestClient;
     private final MemberRestClient memberRestClient;
+    private final ReservationProducer reservationProducer;
 
     public ReservationService(ReservationRepository reservationRepository, 
                               RoomRestClient roomRestClient, 
-                              MemberRestClient memberRestClient) {
+                              MemberRestClient memberRestClient,
+                              ReservationProducer reservationProducer) {
         this.reservationRepository = reservationRepository;
         this.roomRestClient = roomRestClient;
         this.memberRestClient = memberRestClient;
+        this.reservationProducer = reservationProducer;
     }
 
     public List<Reservation> getAllReservations() {
@@ -73,10 +77,11 @@ public class ReservationService {
 
         Reservation savedReservation = reservationRepository.save(reservation);
 
-        // 4. Mettre à jour la disponibilité de la salle via Feign Client
+        // Mettre à jour la disponibilité de la salle via Feign Client
         roomRestClient.updateRoomAvailability(reservation.getRoomId(), false);
 
-        // TODO: Kafka -> Envoyer event pour mettre à jour le nombre de réservations actives du membre
+        // Kafka -> Envoyer event pour mettre à jour le nombre de réservations actives du membre
+        reservationProducer.sendReservationCreatedEvent(reservation.getMemberId());
 
         return savedReservation;
     }
@@ -95,7 +100,8 @@ public class ReservationService {
         // Rendre la salle à nouveau disponible
         roomRestClient.updateRoomAvailability(reservation.getRoomId(), true);
 
-        // TODO: Kafka -> Envoyer event pour diminuer le nombre de réservations du membre
+        // Kafka -> Envoyer event pour diminuer le nombre de réservations du membre
+        reservationProducer.sendReservationEndedEvent(reservation.getMemberId());
 
         return savedReservation;
     }
@@ -114,7 +120,8 @@ public class ReservationService {
         // Rendre la salle à nouveau disponible
         roomRestClient.updateRoomAvailability(reservation.getRoomId(), true);
 
-        // TODO: Kafka -> Envoyer event pour diminuer le nombre de réservations du membre
+        // Kafka -> Envoyer event pour diminuer le nombre de réservations du membre
+        reservationProducer.sendReservationEndedEvent(reservation.getMemberId());
 
         return savedReservation;
     }
