@@ -43,7 +43,7 @@ public class RoomController {
         return ResponseEntity.noContent().build();
     }
     
-    // Endpoint specifique pour modifier la disponibilite
+    // Endpoint pour modifier la disponibilité
     @PatchMapping("/{id}/availability")
     public ResponseEntity<Room> updateAvailability(
             @PathVariable Long id, 
